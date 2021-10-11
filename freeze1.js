@@ -1,23 +1,23 @@
 //based on https://github.com/mruddy/bip65-demos/blob/master/freeze.js
 
 'use strict';
-
+//sets how long funds are frozen
 const LOCK_UNTIL_BLOCK = 150; 
-
+//uses the script from previous exercise to read in arguments
 const args = require('./args-regtest.js');
 const bitcore = require('bitcore-lib');
 
 bitcore.Networks.defaultNetwork = bitcore.Networks.testnet; 
 
 const privKey = bitcore.PrivateKey(bitcore.crypto.BN.One);
-
+//redeemscript implements OP_CHECKLOCKVERIFY
 const redeemScript = bitcore.Script.empty()
   .add(bitcore.crypto.BN.fromNumber(LOCK_UNTIL_BLOCK).toScriptNumBuffer())
   .add('OP_CHECKLOCKTIMEVERIFY').add('OP_DROP')
   .add(bitcore.Script.buildPublicKeyHashOut(privKey.toAddress()));
-
+//generate p2sh address from redeemscript
 const p2shAddress = bitcore.Address.payingTo(redeemScript);
-
+//freeze funds by sending utxo to another frozen address
 const freezeTransaction = new bitcore.Transaction().from({
   txid: args.txid, 
   vout: Number(args.vout), 
@@ -26,7 +26,7 @@ const freezeTransaction = new bitcore.Transaction().from({
 })
 .to(p2shAddress, Number(args.satoshis) - 100000)
 .sign(privKey);
-
+//generic spend transaction 
 const getSpendTransaction = function(lockTime, sequenceNumber) {
   const result = new bitcore.Transaction().from({
     txid: freezeTransaction.id,
@@ -39,7 +39,7 @@ const getSpendTransaction = function(lockTime, sequenceNumber) {
   .lockUntilBlockHeight(lockTime);
   
   result.inputs[0].sequenceNumber = sequenceNumber;
-
+//scriptSig to unlock
   const signature = bitcore.Transaction.sighash.sign(
     result,
     privKey,

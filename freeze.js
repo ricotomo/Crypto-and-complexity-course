@@ -1,3 +1,4 @@
+//args passed in other script txid, vout, scriptPubKey, satoshis
 "use strict"
 const bitcore = require("bitcore-lib");
 bitcore.Networks.defaultNetwork = bitcore.Networks.testnet;
@@ -15,16 +16,12 @@ var utxo = {
   "satoshis" : 50000
 };
 
-//redeem script
-//var scriptPubKey = new bitcore.Script()
-//.add(bitcore.Opcode.OP_CHECKLOCKTIMEVERIFY).add('OP_DROP')
-//.add(bitcore.Script.buildPublicKeyHashOut(privKey.toAddress()));
 
 //redeem script generates p2shadress where we send the funds to to be frozen
 const redeemScript = bitcore.Script.empty()
   .add(bitcore.crypto.BN.fromNumber(LOCK_UNTIL_BLOCK).toScriptNumBuffer())
   .add('OP_CHECKLOCKTIMEVERIFY').add('OP_DROP')
-  .add(bitcore.Script.buildPublicKeyHashOut(privKey.toAddress()));
+  .add(bitcore.Script.buildPublicKeyHashOut(privateKey.toAddress()));
 
 const p2shAddress = bitcore.Address.payingTo(redeemScript);
 
@@ -37,32 +34,69 @@ var freezeTransaction = new bitcore.Transaction()
   .to(p2shAddress, 15000)
   .sign(privateKey);
 
-//try to spend in broken way
-var utxo_invalid= {
+//generic spend transaction
+const getSpendTransaction = function(lockTime, sequenceNumber) {
+  var utxo2= {
   "txId" : freezeTransaction.id,
   "outputIndex" : 0,
   "address" : "17XBj6iFEsf8kzDMGQk5ghZipxX49VXuaV",
   "script" :  redeemScript.toScriptHashOut(),
   "satoshis" : 50000
+  };
+  const result = new bitcore.Transaction()
+   .from(utxo)
+  // for testing we send the money back to first address
+  .to(address,5000)
+  // CLTV say the transaction needs to have block height greater than or equal to the argument I gave the redeem script
+  .lockUntilBlockHeight(lockTime);
+  // the CLTV opcode requires that the input sequence number is not finalized
+  result.inputs[0].sequenceNumber = sequenceNumber;
+
+  const signature = bitcore.Transaction.sighash.sign(
+    result,
+    privateKey,
+    bitcore.crypto.Signature.SIGHASH_ALL,
+    0,
+    redeemScript
+  );
+
+  // setup the scriptSig of the spending transaction to spend the p2sh-cltv-p2pkh redeem script
+  result.inputs[0].setScript(
+    bitcore.Script.empty()
+    .add(signature.toTxFormat())
+    .add(privateKey.toPublicKey().toBuffer())
+    .add(redeemScript.toBuffer())
+  );
+
+  return result;
 };
 
-var result = new bitcore.Transaction()
-        .from(utxo_invalid)
-        .to(address, 5000)
-        .lockUntilBlockheight(LOCK_UNTIL_BLOCK);
+//try to spend in broken way
+//the CLTV rejects both the lower blockheight than the one we set and the sequence number
+const brokenSpendTransaction = getSpendTransaction(110, 0xffffffff);
 
 
 //try to spend valid
-var utxo_valid= {
-  "txId" : freezeTransaction.id,
-  "outputIndex" : 0,
-  "address" : "17XBj6iFEsf8kzDMGQk5ghZipxX49VXuaV",
-  "script" :  redeemScript.toScriptHashOut(),
-  "satoshis" : 50000
+const spendTransaction = getSpendTransaction(LOCK_UNTIL_BLOCK, 0);
+
+//output the result as per https://github.com/mruddy/bip65-demos/blob/master/freeze.js
+const result = {
+  fromAddress: privateKey.toAddress().toString(),
+  p2shAddress: p2shAddress.toString(),
+  redeemScript: redeemScript.toString(),
+  freezeTransaction: {
+    txid: freezeTransaction.id,
+    raw: freezeTransaction.serialize(true),
+  },
+  spendTransaction: {
+    txid: spendTransaction.id,
+    raw: spendTransaction.serialize(true),
+  },
+  brokenSpendTransaction: {
+    txid: brokenSpendTransaction.id,
+    raw: brokenSpendTransaction.serialize(true),
+  },
 };
 
-var result = new bitcore.Transaction()
-	.from(utxo_valid)
-	.to(address, 5000)
-	.lockUntilBlockheight(LOCK_UNTIL_BLOCK);
+console.log(JSON.stringify(result, null, 2));
 

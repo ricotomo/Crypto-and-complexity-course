@@ -51,3 +51,5 @@ obj=json.loads(sys.stdin.read());
 print(obj[0]["scriptPubKey"]);
 ');
 echo $PUBKEY;
+
+node freeze.js --txid=$TXID --vout=$VOUT --scriptPubKey=$PUBKEY --satoshis=$UNSPENT
